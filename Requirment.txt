@@ -1,6 +1,0 @@
-pyTelegramBotAPI
-groq
-feedparser
-requests
-beautifulsoup4
-pytz
