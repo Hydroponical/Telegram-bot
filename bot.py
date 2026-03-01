@@ -15,6 +15,7 @@ import logging
 import pytz
 from bs4 import BeautifulSoup
 import os
+import textwrap
 
 # ────────────────────────────────────────────────
 #                SETTINGS
@@ -436,16 +437,18 @@ def send_and_pin_summary(slot):
         for item in daily_news[-20:]:
             news_block += f"[{item['source']}] {item['title']}\n"
 
-               prompt = f"""You are a concise global markets analyst. Write a very short recap — 2 to 4 bullet points maximum.
-Focus exclusively on the MOST important market-moving events/trends from TODAY's news only.
-Start directly with bullets. No introductions, no commentary, no extra text.
-Use this exact format for each line:
-- Event description in one clear sentence.
+        prompt = textwrap.dedent(f"""\
+            You are a concise global markets analyst. Write a very short recap — 2 to 4 bullet points maximum.
+            Focus exclusively on the MOST important market-moving events/trends from TODAY's news only.
+            Start directly with bullets. No introductions, no commentary, no extra text.
+            Use this exact format for each line:
+            - Event description in one clear sentence.
 
-Be direct, factual, professional. Use numbers and names where relevant.
-Date: {today_str}
-News headlines:
-{news_block}"""
+            Be direct, factual, professional. Use numbers and names where relevant.
+            Date: {today_str}
+            News headlines:
+            {news_block}
+        """).strip()
 
         try:
             resp = groq_client.chat.completions.create(
