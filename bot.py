@@ -437,18 +437,16 @@ def send_and_pin_summary(slot):
         for item in daily_news[-20:]:
             news_block += f"[{item['source']}] {item['title']}\n"
 
-        prompt = textwrap.dedent(f"""\
-            You are a concise global markets analyst. Write a very short recap — 2 to 4 bullet points maximum.
-            Focus exclusively on the MOST important market-moving events/trends from TODAY's news only.
-            Start directly with bullets. No introductions, no commentary, no extra text.
-            Use this exact format for each line:
-            - Event description in one clear sentence.
+        prompt = f"""You are a concise global markets analyst. Write a very short recap — 2 to 4 bullet points maximum.
+Focus exclusively on the MOST important market-moving events/trends from TODAY's news only.
+Start directly with bullets. No introductions, no commentary, no extra text.
+Use this exact format for each line:
+- Event description in one clear sentence.
 
-            Be direct, factual, professional. Use numbers and names where relevant.
-            Date: {today_str}
-            News headlines:
-            {news_block}
-        """).strip()
+Be direct, factual, professional. Use numbers and names where relevant.
+Date: {today_str}
+News headlines:
+{news_block}"""
 
         try:
             resp = groq_client.chat.completions.create(
@@ -457,25 +455,13 @@ def send_and_pin_summary(slot):
                 max_tokens=180,
                 temperature=0.65,
             )
-                      summary_text = resp.choices[0].message.content.strip()
-            # If LLM already gives bullets, we can just use it directly
+            summary_text = resp.choices[0].message.content.strip()
+
+            # Use the model's bullet points directly (most reliable when prompt asks for them)
             text = (
                 f"📊 {slot_title} ({today_str}) — Key market-moving events:\n"
                 f"\n"
                 f"{summary_text}"
-            )
-
-            # ─── Превращаем текст в красивые пункты ───
-            # Разбиваем по предложениям (очень грубо, но обычно работает для 3–5 предложений)
-            sentences = [s.strip() for s in summary_text.replace('\n', ' ').split('.') if s.strip()]
-            bullets = [f"* {s.strip()}{'.' if not s.endswith(('.', '!', '?')) else ''}" for s in sentences]
-
-            formatted_summary = "\n".join(bullets) if bullets else summary_text
-
-            text = (
-                f"📊 {slot_title} ({today_str}) — Key market-moving events:\n"
-                f"\n"
-                f"{formatted_summary}"
             )
 
         except Exception as e:
@@ -486,7 +472,7 @@ def send_and_pin_summary(slot):
                 f"⚠️ Failed to generate summary (Groq API issue)"
             )
 
-    # ─── Отправка и закрепление ───
+    # ─── Pinning logic ───
     if LAST_PINNED_SUMMARY_ID is not None:
         try:
             bot.unpin_chat_message(CHANNEL_ID, LAST_PINNED_SUMMARY_ID)
@@ -498,7 +484,7 @@ def send_and_pin_summary(slot):
         msg = bot.send_message(
             chat_id=CHANNEL_ID,
             text=text,
-            parse_mode="Markdown",          # ← важно!
+            parse_mode="Markdown",
             disable_web_page_preview=True
         )
         new_message_id = msg.message_id
@@ -515,7 +501,6 @@ def send_and_pin_summary(slot):
 
     except Exception as e:
         logging.error(f"Failed to send/pin summary: {e}")
-        # Fallback — отправляем без закрепления, но красиво
         fallback_text = text + "\n\n*(не удалось закрепить сообщение)*"
         bot.send_message(
             chat_id=CHANNEL_ID,
@@ -524,7 +509,7 @@ def send_and_pin_summary(slot):
             disable_web_page_preview=True
         )
 
-    # чистим новости после успешной отправки
+    # Clear news after successful processing
     if daily_news:
         daily_news.clear()
         
