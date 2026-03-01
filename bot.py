@@ -419,33 +419,34 @@ def send_recent_news(initial_run=False):
 
 def send_and_pin_summary(slot):
     global LAST_PINNED_SUMMARY_ID
-
+    
     slot_titles = {
         'morning': 'Morning Briefing',
-        'noon':    'Midday Update',
+        'noon': 'Midday Update',
         'evening': 'Evening Recap',
-        'manual':  'Manual Summary'
+        'manual': 'Manual Summary'
     }
     slot_title = slot_titles.get(slot, 'Daily Summary')
+    today_str = datetime.date.today().strftime("%B %d, %Y")
 
     if not daily_news:
-        text = f"No significant news during this period ({slot_title.lower()})"
+        text = f"📊 {slot_title} ({today_str})\n\nNo significant news during this period."
     else:
         news_block = ""
         for item in daily_news[-20:]:
             news_block += f"[{item['source']}] {item['title']}\n"
 
-        prompt = f"""You are a concise global markets analyst. Write ONLY a very short evening recap — 3 to 5 sentences maximum.
+               prompt = f"""You are a concise global markets analyst. Write a very short recap — 2 to 4 bullet points maximum.
+Focus exclusively on the MOST important market-moving events/trends from TODAY's news only.
+Start directly with bullets. No introductions, no commentary, no extra text.
+Use this exact format for each line:
+- Event description in one clear sentence.
 
-        Focus exclusively on the 2–4 MOST important market-moving events/trends from TODAY's news only.
-        No introductions, no self-description, no general commentary, no "I am watching", no lists unless 1-line bullets.
+Be direct, factual, professional. Use numbers and names where relevant.
+Date: {today_str}
+News headlines:
+{news_block}"""
 
-        Be direct, factual, professional. Use numbers and names where relevant.
-        Output in clean English, no fluff.
-
-        Date: {datetime.date.today().strftime("%B %d, %Y")}
-        News headlines:
-        {news_block}"""
         try:
             resp = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -453,17 +454,36 @@ def send_and_pin_summary(slot):
                 max_tokens=180,
                 temperature=0.65,
             )
-            summary_text = resp.choices[0].message.content.strip()
+                      summary_text = resp.choices[0].message.content.strip()
+            # If LLM already gives bullets, we can just use it directly
+            text = (
+                f"📊 {slot_title} ({today_str}) — Key market-moving events:\n"
+                f"\n"
+                f"{summary_text}"
+            )
 
-            today_str = datetime.date.today().strftime("%B %d, %Y")
-            text = f"📊 {slot_title} ({today_str}) — Key market-moving events:\n\n{summary_text}"
+            # ─── Превращаем текст в красивые пункты ───
+            # Разбиваем по предложениям (очень грубо, но обычно работает для 3–5 предложений)
+            sentences = [s.strip() for s in summary_text.replace('\n', ' ').split('.') if s.strip()]
+            bullets = [f"* {s.strip()}{'.' if not s.endswith(('.', '!', '?')) else ''}" for s in sentences]
+
+            formatted_summary = "\n".join(bullets) if bullets else summary_text
+
+            text = (
+                f"📊 {slot_title} ({today_str}) — Key market-moving events:\n"
+                f"\n"
+                f"{formatted_summary}"
+            )
 
         except Exception as e:
             logging.error(f"Error generating summary ({slot}): {e}")
-            text = f"⚠️ Failed to generate {slot_title.lower()} (Groq issue)"
+            text = (
+                f"📊 {slot_title} ({today_str})\n"
+                f"\n"
+                f"⚠️ Failed to generate summary (Groq API issue)"
+            )
 
-    # ─── Самое важное ───
-    # 1. Открепляем старое (если есть)
+    # ─── Отправка и закрепление ───
     if LAST_PINNED_SUMMARY_ID is not None:
         try:
             bot.unpin_chat_message(CHANNEL_ID, LAST_PINNED_SUMMARY_ID)
@@ -471,36 +491,40 @@ def send_and_pin_summary(slot):
         except Exception as e:
             logging.info(f"Could not unpin old message (maybe already unpinned or deleted): {e}")
 
-    # 2. Отправляем новое сообщение
     try:
         msg = bot.send_message(
             chat_id=CHANNEL_ID,
             text=text,
+            parse_mode="Markdown",          # ← важно!
             disable_web_page_preview=True
         )
         new_message_id = msg.message_id
 
-        # 3. Закрепляем новое
         bot.pin_chat_message(
             chat_id=CHANNEL_ID,
             message_id=new_message_id,
-            disable_notification=True   # чтобы не спамило уведомлениями
+            disable_notification=True
         )
         logging.info(f"Pinned new summary #{new_message_id}")
 
-        # 4. Сохраняем id
         LAST_PINNED_SUMMARY_ID = new_message_id
         save_last_pinned_id()
 
     except Exception as e:
         logging.error(f"Failed to send/pin summary: {e}")
-        # можно отправить без закрепления как fallback
-        bot.send_message(CHANNEL_ID, text + "\n\n(не удалось закрепить)")
+        # Fallback — отправляем без закрепления, но красиво
+        fallback_text = text + "\n\n*(не удалось закрепить сообщение)*"
+        bot.send_message(
+            chat_id=CHANNEL_ID,
+            text=fallback_text,
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
 
     # чистим новости после успешной отправки
-    if daily_news:  # если были новости и summary сгенерировался
+    if daily_news:
         daily_news.clear()
-
+        
 def background_checker():
     global last_check_time
 
